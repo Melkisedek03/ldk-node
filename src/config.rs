@@ -184,6 +184,21 @@ pub struct Config {
 	/// **Note:** If unset, default parameters will be used, and you will be able to override the
 	/// parameters on a per-payment basis in the corresponding method calls.
 	pub route_parameters: Option<RouteParametersConfig>,
+	/// Whether to tolerate an unreachable chain data source when starting the node.
+	///
+	/// If set to `true`, [`Node::start`] logs a warning and continues starting up when
+	/// the chain data source can't be reached (e.g., an Electrum server while the
+	/// device has no network connectivity), instead of returning an error. The node
+	/// then runs without chain synchronization until it is restarted with
+	/// connectivity; Lightning payments over already-established channels remain
+	/// possible, and fee rate estimates keep their default values until the first
+	/// successful update after such a restart.
+	///
+	/// If set to `false` (the default), [`Node::start`] fails when the chain data
+	/// source can't be reached during start-up.
+	///
+	/// [`Node::start`]: crate::Node::start
+	pub tolerate_offline_start: bool,
 }
 
 impl Default for Config {
@@ -198,6 +213,7 @@ impl Default for Config {
 			anchor_channels_config: Some(AnchorChannelsConfig::default()),
 			route_parameters: None,
 			node_alias: None,
+			tolerate_offline_start: false,
 		}
 	}
 }

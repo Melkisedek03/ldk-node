@@ -144,7 +144,7 @@ use lightning::routing::gossip::NodeAlias;
 use lightning::util::persist::KVStoreSync;
 use lightning_background_processor::process_events_async;
 use liquidity::{LSPS1Liquidity, LiquiditySource};
-use logger::{log_debug, log_error, log_info, log_trace, LdkLogger, Logger};
+use logger::{log_debug, log_error, log_info, log_trace, log_warn, LdkLogger, Logger};
 use payment::asynchronous::om_mailbox::OnionMessageMailbox;
 use payment::asynchronous::static_invoice_store::StaticInvoiceStore;
 use payment::{
@@ -232,14 +232,41 @@ impl Node {
 		);
 
 		// Start up any runtime-dependant chain sources (e.g. Electrum)
-		self.chain_source.start(Arc::clone(&self.runtime)).map_err(|e| {
-			log_error!(self.logger, "Failed to start chain syncing: {}", e);
-			e
-		})?;
+		let chain_source_started = match self.chain_source.start(Arc::clone(&self.runtime)) {
+			Ok(()) => true,
+			Err(e) => {
+				if self.config.tolerate_offline_start {
+					log_warn!(
+						self.logger,
+						"Failed to start chain syncing, continuing without chain sync: {}",
+						e
+					);
+					false
+				} else {
+					log_error!(self.logger, "Failed to start chain syncing: {}", e);
+					return Err(e);
+				}
+			},
+		};
 
-		// Block to ensure we update our fee rate cache once on startup
-		let chain_source = Arc::clone(&self.chain_source);
-		self.runtime.block_on(async move { chain_source.update_fee_rate_estimates().await })?;
+		if chain_source_started {
+			// Block to ensure we update our fee rate cache once on startup
+			let chain_source = Arc::clone(&self.chain_source);
+			let fee_rate_res = self
+				.runtime
+				.block_on(async move { chain_source.update_fee_rate_estimates().await });
+			if let Err(e) = fee_rate_res {
+				if self.config.tolerate_offline_start {
+					log_warn!(
+						self.logger,
+						"Failed to update fee rate estimates on startup, continuing: {}",
+						e
+					);
+				} else {
+					return Err(e);
+				}
+			}
+		}
 
 		// Spawn background task continuously syncing onchain, lightning, and fee rate cache.
 		let stop_sync_receiver = self.stop_sender.subscribe();
