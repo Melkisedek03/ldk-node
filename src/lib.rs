@@ -268,6 +268,16 @@ impl Node {
 			}
 		}
 
+		if chain_source_started {
+			// Re-broadcast funding transactions of channels whose initial
+			// broadcast never reached the network (e.g. because the chain
+			// source was unavailable when `funding_signed` was received). The
+			// transactions are persisted with the channel state, so this
+			// recovers such channels on the first start with a working chain
+			// source.
+			self.channel_manager.rebroadcast_pending_funding_transactions();
+		}
+
 		// Spawn background task continuously syncing onchain, lightning, and fee rate cache.
 		let stop_sync_receiver = self.stop_sender.subscribe();
 		let chain_source = Arc::clone(&self.chain_source);
@@ -1480,7 +1490,11 @@ impl Node {
 			if chain_source.is_transaction_based() {
 				chain_source.update_fee_rate_estimates().await?;
 				chain_source
-					.sync_lightning_wallet(sync_cman, sync_cmon, Arc::clone(&sync_sweeper))
+					.sync_lightning_wallet(
+						Arc::clone(&sync_cman),
+						sync_cmon,
+						Arc::clone(&sync_sweeper),
+					)
 					.await?;
 				chain_source.sync_onchain_wallet(sync_wallet).await?;
 			} else {
@@ -1488,12 +1502,15 @@ impl Node {
 				chain_source
 					.poll_and_update_listeners(
 						sync_wallet,
-						sync_cman,
+						Arc::clone(&sync_cman),
 						sync_cmon,
 						Arc::clone(&sync_sweeper),
 					)
 					.await?;
 			}
+			// Re-broadcast funding transactions that never reached the network
+			// on their initial broadcast, now that we're synced with the chain.
+			sync_cman.rebroadcast_pending_funding_transactions();
 			let _ = sync_sweeper.regenerate_and_broadcast_spend_if_necessary().await;
 			Ok(())
 		})

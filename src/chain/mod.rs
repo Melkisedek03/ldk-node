@@ -317,6 +317,10 @@ impl ChainSource {
 		lightning_wallet_sync_interval
 			.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+		// Track the chain tip so funding transactions that never reached the
+		// network can be re-broadcast whenever it advances.
+		let mut last_funding_rebroadcast_height = channel_manager.current_best_block().height;
+
 		// Start the syncing loop.
 		loop {
 			tokio::select! {
@@ -334,11 +338,23 @@ impl ChainSource {
 					let _ = self.update_fee_rate_estimates().await;
 				}
 				_ = lightning_wallet_sync_interval.tick() => {
-					let _ = self.sync_lightning_wallet(
+					let sync_res = self.sync_lightning_wallet(
 						Arc::clone(&channel_manager),
 						Arc::clone(&chain_monitor),
 						Arc::clone(&output_sweeper),
 						).await;
+					if sync_res.is_ok() {
+						// Whenever the chain tip advances, give channels whose
+						// funding transaction never reached the network another
+						// chance to broadcast it. Channels whose funding
+						// transaction confirmed in the meantime are skipped by
+						// the channel manager.
+						let cur_height = channel_manager.current_best_block().height;
+						if cur_height != last_funding_rebroadcast_height {
+							last_funding_rebroadcast_height = cur_height;
+							channel_manager.rebroadcast_pending_funding_transactions();
+						}
+					}
 				}
 			}
 		}
