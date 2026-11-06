@@ -103,6 +103,11 @@ fn main() {
 	println!("[lsp] melayani LSPS2, Ctrl+C untuk berhenti");
 
 	// Uji: buka channel ke peer jika diminta via LSP_PEER_OPEN=node_id@host:port:sats:push_msat
+	// LSP_PEER_OPEN_ANNOUNCED=1 -> channel ANNOUNCED (publik, masuk graf) via
+	// Node::open_announced_channel; tanpa flag ini perilaku lama dipertahankan:
+	// channel PRIVAT via Node::open_channel. Flag ini HANYA memengaruhi
+	// pembukaan manual ini — channel JIT (LSPS2, inbound) dan channel lain
+	// yang sudah ada tidak disentuh.
 	// Tunggu wallet sync dulu (maks 5 menit) agar dana terlihat.
 	if let Ok(spec) = std::env::var("LSP_PEER_OPEN") {
 		println!("[lsp] menunggu wallet sync sebelum buka channel...");
@@ -123,8 +128,22 @@ fn main() {
 		let addr = SocketAddress::from_str(&format!("{}:{}", ap[0], ap[1])).expect("peer addr");
 		let sats: u64 = ap[2].parse().expect("sats");
 		let push_msat: u64 = ap[3].parse().expect("push_msat");
-		println!("[lsp] membuka channel ke {} ({} sats, push {} msat)...", peer_id, sats, push_msat);
-		match node.open_channel(peer_id, addr, sats, Some(push_msat), None) {
+		let announced = std::env::var("LSP_PEER_OPEN_ANNOUNCED")
+			.map(|v| v.trim() == "1")
+			.unwrap_or(false);
+		println!(
+			"[lsp] membuka channel {} ke {} ({} sats, push {} msat)...",
+			if announced { "ANNOUNCED" } else { "privat" },
+			peer_id,
+			sats,
+			push_msat
+		);
+		let res = if announced {
+			node.open_announced_channel(peer_id, addr, sats, Some(push_msat), None)
+		} else {
+			node.open_channel(peer_id, addr, sats, Some(push_msat), None)
+		};
+		match res {
 			Ok(id) => println!("[lsp] channel open diminta, id={:?}", id),
 			Err(e) => println!("[lsp] GAGAL open channel: {:?}", e),
 		}
