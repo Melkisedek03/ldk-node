@@ -6,6 +6,12 @@
 //!                    wajib beda per instance bila dua server jalan di satu mesin)
 //!   LSP_ELECTRUM   - alamat electrum, mis. "163.245.193.102:60009"
 //!   LSP_LISTEN     - alamat listen P2P, mis. "0.0.0.0:9738"
+//!   LSP_ANNOUNCE_ADDR - alamat yang DIUMUMKAN ke jaringan gossip
+//!                    (opsional, mis. "203.0.113.10:9739"); inilah alamat
+//!                    yang dipakai node lain untuk menghubungi kita.
+//!                    Berbeda dari LSP_LISTEN (alamat bind lokal). Bila
+//!                    tidak diisi, alamat listen yang diumumkan
+//!                    (perilaku lama).
 //!   LSP_STORAGE    - direktori data, mis. "/tmp/lsp-server-testnet"
 //!   LSP_TOKEN      - token akses wajib dari client (require_token)
 //!   LSP_PAY_FILE   - path file pemicu bayar langsung: operator menulis
@@ -90,6 +96,21 @@ fn main() {
 		.set_listening_addresses(vec![SocketAddress::from_str(&listen).expect("listen addr")])
 		.expect("set_listening_addresses");
 	builder.set_node_alias(alias).expect("set_node_alias");
+	// Alamat pengumuman gossip terpisah dari alamat bind: LSP_ANNOUNCE_ADDR
+	// (mis. IP publik VPS) diumumkan ke jaringan, sementara LSP_LISTEN tetap
+	// alamat bind lokal (0.0.0.0). Tanpa env ini, alamat listen yang
+	// diumumkan (perilaku bawaan ldk-node, tidak berubah).
+	if let Ok(announce) = std::env::var("LSP_ANNOUNCE_ADDR") {
+		let announce = announce.trim();
+		if !announce.is_empty() {
+			let addr =
+				SocketAddress::from_str(announce).expect("LSP_ANNOUNCE_ADDR tidak valid");
+			builder
+				.set_announcement_addresses(vec![addr])
+				.expect("set_announcement_addresses");
+			println!("[lsp] alamat pengumuman (gossip): {}", announce);
+		}
+	}
 	builder.set_liquidity_provider_lsps2(service_config);
 
 	let node = builder.build().expect("[lsp] build gagal");
