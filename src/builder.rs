@@ -567,6 +567,16 @@ impl NodeBuilder {
 		Ok(self)
 	}
 
+	/// Sets the maximum funding amount, in satoshis, that we will accept for an inbound
+	/// channel.
+	///
+	/// The default corresponds to LDK's pre-wumbo limit of `2^24 - 1` satoshis. Set this to
+	/// a higher value (e.g., `u64::MAX`) to accept larger ('wumbo') inbound channels.
+	pub fn set_max_funding_satoshis(&mut self, max_funding_satoshis: u64) -> &mut Self {
+		self.config.max_funding_satoshis = max_funding_satoshis;
+		self
+	}
+
 	/// Sets the role of the node in an asynchronous payments context.
 	///
 	/// See <https://github.com/lightning/bolts/pull/1149> for more information about the async payments protocol.
@@ -1040,6 +1050,14 @@ impl ArcedNodeBuilder {
 	/// The provided alias must be a valid UTF-8 string and no longer than 32 bytes in total.
 	pub fn set_node_alias(&self, node_alias: String) -> Result<(), BuildError> {
 		self.inner.write().unwrap().set_node_alias(node_alias).map(|_| ())
+	}
+
+	/// Sets the maximum funding amount, in satoshis, that we will accept for an inbound
+	/// channel.
+	///
+	/// See [`NodeBuilder::set_max_funding_satoshis`] for more information.
+	pub fn set_max_funding_satoshis(&self, max_funding_satoshis: u64) {
+		self.inner.write().unwrap().set_max_funding_satoshis(max_funding_satoshis);
 	}
 
 	/// Sets the role of the node in an asynchronous payments context.

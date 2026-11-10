@@ -27,6 +27,8 @@ const DEFAULT_BDK_WALLET_SYNC_INTERVAL_SECS: u64 = 80;
 const DEFAULT_LDK_WALLET_SYNC_INTERVAL_SECS: u64 = 30;
 const DEFAULT_FEE_RATE_CACHE_UPDATE_INTERVAL_SECS: u64 = 60 * 10;
 const DEFAULT_PROBING_LIQUIDITY_LIMIT_MULTIPLIER: u64 = 3;
+/// LDK's pre-wumbo inbound funding limit: `2^24 - 1` satoshis.
+const DEFAULT_MAX_FUNDING_SATOSHIS: u64 = 16_777_215;
 const DEFAULT_ANCHOR_PER_CHANNEL_RESERVE_SATS: u64 = 25_000;
 
 /// The default log level.
@@ -159,6 +161,12 @@ pub struct Config {
 	/// Channels with available liquidity less than the required amount times this value won't be
 	/// used to send pre-flight probes.
 	pub probing_liquidity_limit_multiplier: u64,
+	/// The maximum funding amount, in satoshis, that we will accept for an inbound channel.
+	///
+	/// This mirrors LDK's `ChannelHandshakeLimits::max_funding_satoshis`. Accepting larger
+	/// channels requires the counterparty to negotiate the `wumbo` feature. The default
+	/// corresponds to LDK's pre-wumbo limit of `2^24 - 1` satoshis.
+	pub max_funding_satoshis: u64,
 	/// Configuration options pertaining to Anchor channels, i.e., channels for which the
 	/// `option_anchors_zero_fee_htlc_tx` channel type is negotiated.
 	///
@@ -210,6 +218,7 @@ impl Default for Config {
 			announcement_addresses: None,
 			trusted_peers_0conf: Vec::new(),
 			probing_liquidity_limit_multiplier: DEFAULT_PROBING_LIQUIDITY_LIMIT_MULTIPLIER,
+			max_funding_satoshis: DEFAULT_MAX_FUNDING_SATOSHIS,
 			anchor_channels_config: Some(AnchorChannelsConfig::default()),
 			route_parameters: None,
 			node_alias: None,
@@ -342,6 +351,7 @@ pub(crate) fn default_user_config(config: &Config) -> UserConfig {
 	user_config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx =
 		config.anchor_channels_config.is_some();
 	user_config.reject_inbound_splices = false;
+	user_config.channel_handshake_limits.max_funding_satoshis = config.max_funding_satoshis;
 
 	if may_announce_channel(config).is_err() {
 		user_config.accept_forwards_to_priv_channels = false;
@@ -573,7 +583,28 @@ pub enum AsyncPaymentsRole {
 mod tests {
 	use std::str::FromStr;
 
-	use super::{may_announce_channel, AnnounceError, Config, NodeAlias, SocketAddress};
+	use super::{
+		default_user_config, may_announce_channel, AnnounceError, Config, NodeAlias,
+		SocketAddress, DEFAULT_MAX_FUNDING_SATOSHIS,
+	};
+
+	#[test]
+	fn user_config_max_funding_satoshis() {
+		// The default keeps LDK's pre-wumbo inbound funding limit.
+		let config = Config::default();
+		let user_config = default_user_config(&config);
+		assert_eq!(
+			user_config.channel_handshake_limits.max_funding_satoshis,
+			DEFAULT_MAX_FUNDING_SATOSHIS
+		);
+		assert_eq!(DEFAULT_MAX_FUNDING_SATOSHIS, 16_777_215);
+
+		// A raised limit (e.g., no cap for wumbo channels) is carried over.
+		let mut config = Config::default();
+		config.max_funding_satoshis = u64::MAX;
+		let user_config = default_user_config(&config);
+		assert_eq!(user_config.channel_handshake_limits.max_funding_satoshis, u64::MAX);
+	}
 
 	#[test]
 	fn node_announce_channel() {

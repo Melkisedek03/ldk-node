@@ -111,6 +111,23 @@ fn main() {
 			println!("[lsp] alamat pengumuman (gossip): {}", announce);
 		}
 	}
+	// Batas ukuran channel MASUK (channel self-funded pengguna ke LSP):
+	// bawaan rust-lightning adalah batas pra-wumbo 2^24-1 = 16.777.215
+	// nusan (±0,168 NUX) — pada uji testnet 10 Nov 2026 channel 0,2 NUX
+	// ditolak LSP di tahap penerimaan ("funding must be at most
+	// 16777215"). Wumbo sudah teriklan aktif di kedua sisi, jadi batas
+	// penerimaan ini satu-satunya penghalang. Bawaan server: TANPA
+	// plafon (u64::MAX). Operator bisa memasang plafon lewat
+	// LSP_MAX_FUNDING_NUSAN=<nusan>.
+	let max_funding_nusan: u64 = match std::env::var("LSP_MAX_FUNDING_NUSAN") {
+		Ok(v) => v
+			.trim()
+			.parse()
+			.expect("LSP_MAX_FUNDING_NUSAN tidak valid (harus angka nusan)"),
+		Err(_) => u64::MAX,
+	};
+	builder.set_max_funding_satoshis(max_funding_nusan);
+	println!("[lsp] batas funding channel masuk: {} nusan", max_funding_nusan);
 	builder.set_liquidity_provider_lsps2(service_config);
 
 	let node = builder.build().expect("[lsp] build gagal");
